@@ -321,6 +321,3 @@ Everything works on Linux without code changes:
 
 ---
 
-## License
-
-MIT — see [LICENSE](LICENSE)
