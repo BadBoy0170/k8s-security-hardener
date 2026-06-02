@@ -1,0 +1,80 @@
+<!--
+  Wazuh Custom Rules for k8s-security-hardener
+  
+  Install location: /var/ossec/etc/rules/local_rules.xml on the Wazuh Manager
+  
+  Rule ID range: 110000-110010 (reserved for k8s-hardener)
+  
+  Usage:
+    sudo cp local_rules.xml /var/ossec/etc/rules/
+    sudo systemctl restart wazuh-manager
+    # Verify with ossec-logtest:
+    echo '{"tool":"k8s-hardener","severity":"Critical","rule_id":"RBAC-001","namespace":"default","resource":"pod/test","description":"Test","attack_path":"pod → sa → clusteradmin"}' | sudo /var/ossec/bin/ossec-logtest
+-->
+<group name="k8s,security_hardener,">
+
+  <!-- Rule 110000: Base rule — any event from k8s-hardener -->
+  <rule id="110000" level="3">
+    <decoded_as>k8s-hardener-json</decoded_as>
+    <description>Kubernetes Security Hardener Event: $(rule_id) in $(namespace)</description>
+    <group>k8s_hardener,</group>
+  </rule>
+
+  <!-- Rule 110001: Medium severity finding -->
+  <rule id="110001" level="7">
+    <if_sid>110000</if_sid>
+    <field name="severity">Medium</field>
+    <description>K8s Hardener: Medium vulnerability in $(namespace)/$(resource) — $(description)</description>
+    <group>k8s_hardener,pci_dss_2.2.1,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 110002: High severity finding -->
+  <rule id="110002" level="10">
+    <if_sid>110000</if_sid>
+    <field name="severity">High</field>
+    <description>K8s Hardener: High vulnerability in $(namespace)/$(resource) — $(description)</description>
+    <mitre>
+      <id>T1068</id>    <!-- Exploitation for Privilege Escalation -->
+      <id>T1610</id>    <!-- Deploy Container -->
+    </mitre>
+    <group>k8s_hardener,pci_dss_10.6.1,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 110003: Critical severity finding — triggers active response -->
+  <rule id="110003" level="12">
+    <if_sid>110000</if_sid>
+    <field name="severity">Critical</field>
+    <description>K8s Hardener: CRITICAL vulnerability in $(namespace)/$(resource) — $(description)</description>
+    <mitre>
+      <id>T1068</id>    <!-- Exploitation for Privilege Escalation -->
+      <id>T1078</id>    <!-- Valid Accounts (abuse of SA) -->
+    </mitre>
+    <group>k8s_hardener,pci_dss_10.6.1,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 110004: Critical with Attack Path — confirmed escalation path -->
+  <rule id="110004" level="14">
+    <if_sid>110003</if_sid>
+    <field name="attack_path">\.+</field>
+    <description>K8s Hardener: CRITICAL Attack Path to ClusterAdmin detected in $(namespace) — Path: $(attack_path)</description>
+    <mitre>
+      <id>T1078.001</id>  <!-- Valid Accounts: Default Accounts -->
+      <id>T1068</id>
+      <id>T1613</id>      <!-- Container and Resource Discovery -->
+    </mitre>
+    <group>k8s_hardener,pci_dss_10.6.1,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 110005: eBPF runtime detection — reverse shell / suspicious exec -->
+  <rule id="110005" level="15">
+    <if_sid>110000</if_sid>
+    <field name="rule_id">EBPF-001</field>
+    <description>K8s Hardener: Runtime threat detected by eBPF in container $(resource) — $(description)</description>
+    <mitre>
+      <id>T1059</id>    <!-- Command and Scripting Interpreter -->
+      <id>T1609</id>    <!-- Container Administration Command -->
+    </mitre>
+    <group>k8s_hardener,pci_dss_10.6.1,gdpr_IV_35.7.d,attack,</group>
+  </rule>
+
+</group>

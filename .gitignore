@@ -1,0 +1,40 @@
+# =============================================================================
+# .gitignore for k8s-security-hardener
+# =============================================================================
+
+# ── Compiled binaries ──────────────────────────────────────────────────────
+bin/
+*.exe
+*.out
+
+# ── TLS certificates (NEVER commit private keys) ──────────────────────────
+certs/
+*.key
+*.crt
+*.csr
+*.pem
+*.p12
+*.pfx
+
+# ── Go toolchain artifacts ─────────────────────────────────────────────────
+vendor/
+*.test
+*.prof
+coverage.out
+coverage.html
+
+# ── IDE / OS cruft ────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# ── Wazuh log output (runtime, not config) ────────────────────────────────
+*.log
+/var/
+
+# ── Scratch / local test files ────────────────────────────────────────────
+scratch/
+test-output/

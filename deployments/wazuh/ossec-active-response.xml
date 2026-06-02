@@ -1,0 +1,53 @@
+<!--
+  Wazuh Active Response Configuration for k8s-security-hardener
+  
+  Add this block to /var/ossec/etc/ossec.conf on the Wazuh Manager,
+  inside the <ossec_config> section.
+  
+  What this does:
+    1. Defines a command that runs k8s-isolate-pod.sh on the Wazuh agent
+    2. Wires it to fire automatically when rules 110004 or 110005 trigger
+       (Critical attack path or eBPF runtime threat detected)
+  
+  Prerequisites:
+    - k8s-isolate-pod.sh must be installed on the Wazuh agent:
+        /var/ossec/active-response/bin/k8s-isolate-pod.sh
+    - kubectl must be available and configured on the agent host
+    - The agent must be running on a K8s control plane node or jump box with cluster access
+-->
+
+<!-- Command Definition: k8s-isolate -->
+<command>
+  <name>k8s-isolate</name>
+  <executable>k8s-isolate-pod.sh</executable>
+  <timeout_allowed>no</timeout_allowed>
+</command>
+
+<!-- Command Definition: k8s-quarantine-sa (disables a compromised ServiceAccount) -->
+<command>
+  <name>k8s-quarantine-sa</name>
+  <executable>k8s-quarantine-sa.sh</executable>
+  <timeout_allowed>no</timeout_allowed>
+</command>
+
+<!-- Active Response: Isolate pod on confirmed attack path (rule 110004) -->
+<active-response>
+  <command>k8s-isolate</command>
+  <location>local</location>
+  <rules_id>110004</rules_id>
+</active-response>
+
+<!-- Active Response: Isolate pod on eBPF runtime threat (rule 110005) -->
+<active-response>
+  <command>k8s-isolate</command>
+  <location>local</location>
+  <rules_id>110005</rules_id>
+</active-response>
+
+<!-- Active Response: Alert only (email/slack via integrations) for High findings -->
+<active-response>
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_id>110002</rules_id>
+  <timeout>no</timeout>
+</active-response>

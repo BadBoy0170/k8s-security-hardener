@@ -1,0 +1,26 @@
+<!--
+  Wazuh Custom Decoder for k8s-security-hardener
+  
+  Install location: /var/ossec/etc/decoders/local_decoder.xml on the Wazuh Manager
+  
+  This decoder matches JSON log lines produced by the k8s-hardener Go binary
+  and instructs Wazuh to parse them with the built-in JSON_Decoder plugin,
+  which automatically maps JSON keys to Wazuh alert fields.
+  
+  Log format (one JSON object per line):
+  {"tool":"k8s-hardener","timestamp":"...","severity":"Critical","rule_id":"RBAC-001",...}
+  
+  Usage:
+    sudo cp local_decoder.xml /var/ossec/etc/decoders/
+    sudo systemctl restart wazuh-manager
+    sudo /var/ossec/bin/ossec-logtest  # test with a sample log line
+-->
+<decoder_list>
+
+  <!-- Parent decoder: matches any log line starting with the k8s-hardener tool marker -->
+  <decoder name="k8s-hardener-json">
+    <prematch>^{"tool":"k8s-hardener"</prematch>
+    <plugin_decoder>JSON_Decoder</plugin_decoder>
+  </decoder>
+
+</decoder_list>

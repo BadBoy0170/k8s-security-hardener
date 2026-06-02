@@ -1,0 +1,173 @@
+---
+# =============================================================================
+# webhook-deployment.yaml — K8s Security Hardener Admission Controller
+# =============================================================================
+# Deploys the ValidatingWebhookConfiguration that intercepts all Deployment,
+# DaemonSet, StatefulSet, and Pod CREATE/UPDATE operations and rejects
+# those that fail security checks.
+#
+# Deploy:
+#   1. Generate TLS certs:       ./scripts/gen-certs.sh
+#   2. Create TLS secret:        kubectl create secret tls k8s-hardener-webhook-tls \
+#                                  --cert=certs/tls.crt --key=certs/tls.key \
+#                                  -n security
+#   3. Apply manifest:           kubectl apply -f webhook-deployment.yaml
+#   4. Register webhook:         kubectl apply -f webhook-validating-config.yaml
+#
+# Test:
+#   kubectl apply -f tests/privileged-pod.yaml  # should be REJECTED
+# =============================================================================
+
+# Namespace for all k8s-hardener components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security
+  labels:
+    app: k8s-hardener
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-hardener-webhook
+  namespace: security
+  labels:
+    app: k8s-hardener
+    component: webhook
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-hardener-webhook
+  namespace: security
+  labels:
+    app: k8s-hardener
+    component: webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: k8s-hardener
+      component: webhook
+  template:
+    metadata:
+      labels:
+        app: k8s-hardener
+        component: webhook
+    spec:
+      serviceAccountName: k8s-hardener-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: webhook
+          image: ghcr.io/badboy0170/k8s-sec-hardener-webhook:latest
+          imagePullPolicy: Always
+          command:
+            - /webhook
+            - --port=8443
+            - --tls-cert=/etc/webhook/certs/tls.crt
+            - --tls-key=/etc/webhook/certs/tls.key
+            - --cluster-name=production
+          ports:
+            - containerPort: 8443
+              name: https
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: k8s-hardener-webhook-tls
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-hardener-webhook
+  namespace: security
+  labels:
+    app: k8s-hardener
+    component: webhook
+spec:
+  selector:
+    app: k8s-hardener
+    component: webhook
+  ports:
+    - port: 443
+      targetPort: 8443
+      name: https
+
+---
+# ValidatingWebhookConfiguration — registers the webhook with the K8s API server
+# NOTE: Replace `caBundle` with the base64-encoded CA cert from gen-certs.sh:
+#   cat certs/ca.crt | base64 | tr -d '\n'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: k8s-security-hardener
+  labels:
+    app: k8s-hardener
+webhooks:
+  - name: validate.k8s-hardener.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Ignore    # Fail-open: if webhook is down, allow the request
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - security                # Don't block our own webhook pods
+    rules:
+      - apiGroups: ["", "apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources:
+          - pods
+          - deployments
+          - daemonsets
+          - statefulsets
+        scope: "Namespaced"
+    clientConfig:
+      service:
+        name: k8s-hardener-webhook
+        namespace: security
+        path: /validate
+        port: 443
+      caBundle: ""    # Fill in with: cat certs/ca.crt | base64 | tr -d '\n'
+    timeoutSeconds: 5

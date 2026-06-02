@@ -1,0 +1,139 @@
+---
+# =============================================================================
+# scanner-cronjob.yaml — K8s Security Hardener Periodic Scanner
+# =============================================================================
+# Runs the k8s-hardener scanner every 30 minutes as a CronJob.
+# Findings are written to /var/log/k8s-hardener.log which is mounted
+# as a hostPath volume so the Wazuh agent can monitor it.
+#
+# Deploy:
+#   kubectl apply -f scanner-cronjob.yaml
+#
+# View logs:
+#   kubectl logs -n security -l job-name=k8s-hardener-scanner --tail=100
+# =============================================================================
+
+# ServiceAccount for the scanner
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-hardener-scanner
+  namespace: security
+  labels:
+    app: k8s-hardener
+    component: scanner
+
+---
+# ClusterRole — read-only access to all resources the scanners need
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-hardener-scanner
+  labels:
+    app: k8s-hardener
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - secrets
+      - services
+      - serviceaccounts
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs: ["get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - clusterroles
+      - clusterrolebindings
+      - roles
+      - rolebindings
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-hardener-scanner
+  labels:
+    app: k8s-hardener
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-hardener-scanner
+subjects:
+  - kind: ServiceAccount
+    name: k8s-hardener-scanner
+    namespace: security
+
+---
+# CronJob — runs every 30 minutes
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k8s-hardener-scanner
+  namespace: security
+  labels:
+    app: k8s-hardener
+    component: scanner
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: k8s-hardener
+            component: scanner
+        spec:
+          serviceAccountName: k8s-hardener-scanner
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: scanner
+              image: ghcr.io/badboy0170/k8s-sec-hardener:latest
+              imagePullPolicy: Always
+              command:
+                - /scanner
+                - --output-file=/var/log/k8s-hardener.log
+                - --cluster-name=$(CLUSTER_NAME)
+              env:
+                - name: CLUSTER_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.labels['cluster-name']
+              resources:
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+                requests:
+                  cpu: "100m"
+                  memory: "64Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: log-volume
+                  mountPath: /var/log
+          volumes:
+            - name: log-volume
+              hostPath:
+                path: /var/log/k8s-hardener
+                type: DirectoryOrCreate
