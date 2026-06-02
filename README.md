@@ -16,7 +16,7 @@ Static scanning · Graph attack-path analysis · eBPF runtime detection · LLM a
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -121,13 +121,6 @@ go build -o bin/webhook ./cmd/webhook
 ```bash
 # Console output only — no changes made to the cluster
 ./bin/scanner --cluster-name=my-cluster --dry-run
-```
-
-### Test Without a Cluster (macOS or CI)
-
-```bash
-# Injects realistic synthetic findings — no kubeconfig needed
-./bin/scanner --mock-scan --cluster-name=local
 ```
 
 ### Ship Findings to Wazuh
