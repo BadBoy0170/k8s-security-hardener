@@ -9,8 +9,10 @@ import (
 
 // ShipToFile appends each finding as a JSON line to the given log file.
 // The Wazuh agent monitors this file via its localfile configuration.
+// Mode 0640: readable by owner (root) and wazuh group only.
 func ShipToFile(findings []SecurityFinding, path string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+
 	if err != nil {
 		return fmt.Errorf("failed to open log file %q: %w", path, err)
 	}

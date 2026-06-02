@@ -4,9 +4,10 @@
 
 ![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.27+-326CE5?style=for-the-badge&logo=kubernetes)
+![Linux](https://img.shields.io/badge/Linux-5.8%2B-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 ![Wazuh](https://img.shields.io/badge/Wazuh-SIEM%2FSOAR-005571?style=for-the-badge)
 ![eBPF](https://img.shields.io/badge/eBPF-Runtime%20Detection-FF6600?style=for-the-badge)
-![LLM](https://img.shields.io/badge/Ollama-LLM%20Remediation-black?style=for-the-badge)
+![LLM](https://img.shields.io/badge/Ollama-dolphin--llama3-black?style=for-the-badge)
 
 **Enterprise Kubernetes Security Hardening Platform**  
 Static scanning · Graph attack-path analysis · eBPF runtime detection · LLM auto-remediation · SIEM integration
@@ -22,110 +23,114 @@ Static scanning · Graph attack-path analysis · eBPF runtime detection · LLM a
 │                    K8s API Server                               │
 │                         │                                       │
 │           ┌─────────────▼──────────────┐                        │
-│           │  Admission Webhook         │                        │
-│           │  cmd/webhook               │  Blocks bad deploys    │
+│           │  Admission Webhook         │  Blocks bad deploys    │
+│           │  cmd/webhook               │  before they land      │
 │           └─────────────┬──────────────┘                        │
 └─────────────────────────┼───────────────────────────────────────┘
                           │
           ┌───────────────▼────────────────────┐
           │         Scanner Engine             │
           │  ┌─────────┐  ┌─────────────────┐  │
-          │  │ RBAC    │  │ Workloads       │  │  
-          │  │ Scanner │  │ Scanner         │  │
+          │  │  RBAC   │  │   Workloads     │  │
+          │  │ Scanner │  │   Scanner       │  │
           │  ├─────────┤  ├─────────────────┤  │
           │  │ Secrets │  │ Network Policy  │  │
-          │  │ Scanner │  │ Scanner         │  │
+          │  │ Scanner │  │   Scanner       │  │
           │  └─────────┘  └─────────────────┘  │
           │                                    │
           │  ┌──────────────┐  ┌─────────────┐ │
-          │  │ Graph Attack │  │ eBPF Runtime│ │  
-          │  │ Path (gonum) │  │ Monitor     │ │
+          │  │ Graph Attack │  │eBPF Runtime │ │
+          │  │ Path (gonum) │  │  Monitor    │ │
           │  └──────────────┘  └─────────────┘ │
           │                                    │
           │  ┌──────────────────────────────┐  │
           │  │  LLM Auto-Remediation        │  │
-          │  │  (Ollama / llama3)           │  │
+          │  │  (Ollama / dolphin-llama3)   │  │
           │  └──────────────────────────────┘  │
           └───────────────┬────────────────────┘
                           │ JSON findings
           ┌───────────────▼────────────────────┐
-          │              Wazuh                 │  
+          │              Wazuh                 │
           │ Decoders → Rules → Active Response │
           │ Pod isolation on Critical alerts   │
           └────────────────────────────────────┘
 ```
 
-## 📁 Project Structure
+---
+
+## Project Structure
 
 ```
 k8s-security-hardener/
 ├── cmd/
-│   ├── scanner/main.go           # CLI / CronJob entrypoint
-│   └── webhook/main.go           # Admission controller entrypoint
+│   ├── scanner/main.go              # CLI / CronJob entrypoint
+│   └── webhook/main.go              # Admission controller entrypoint
 ├── internal/
-│   ├── auth/client.go            # K8s API authentication
+│   ├── auth/client.go               # K8s API authentication (in-cluster + kubeconfig)
 │   ├── scanners/
-│   │   ├── rbac.go               # RBAC wildcard / exec access checks
-│   │   ├── workloads.go          # Privileged, root, missing limits
-│   │   ├── secrets.go            # Exposed/hardcoded secrets
-│   │   └── network.go            # Missing NetworkPolicy checks
-│   ├── graph/attack_path.go      # Dijkstra's attack path analysis
+│   │   ├── rbac.go                  # Wildcard permissions, exec access checks
+│   │   ├── workloads.go             # Privileged containers, root UID, missing limits
+│   │   ├── secrets.go               # Hardcoded secrets in env vars
+│   │   └── network.go               # Missing default-deny NetworkPolicies
+│   ├── graph/attack_path.go         # Dijkstra's attack-path analysis (gonum)
 │   ├── ebpf/
-│   │   ├── runtime.go            # Linux eBPF monitor (sys_enter_execve)
-│   │   └── runtime_stub.go       # macOS/Windows no-op stub
-│   ├── remediation/llm_patcher.go # Ollama LLM YAML patching
-│   ├── webhook/validator.go      # ValidatingWebhookConfiguration handler
+│   │   ├── runtime.go               # Linux eBPF monitor (sys_enter_execve)
+│   │   ├── runtime_stub.go          # macOS no-op stub
+│   │   └── bpf_linux_stub.go        # Linux type stubs (pre-bpf2go)
+│   ├── remediation/llm_patcher.go   # Ollama LLM YAML patching
+│   ├── webhook/validator.go         # ValidatingWebhookConfiguration handler
 │   └── report/
-│       ├── models.go             # SecurityFinding schema
-│       ├── wazuh_shipper.go      # File + syslog log shipping
-│       └── console.go            # Color-coded CLI output
+│       ├── models.go                # SecurityFinding JSON schema
+│       ├── wazuh_shipper.go         # File + syslog shipping to Wazuh
+│       └── console.go               # Color-coded terminal output
 ├── deployments/
-│   ├── scanner-cronjob.yaml      # Scanner CronJob + RBAC
-│   ├── webhook-deployment.yaml   # Webhook Deployment + VWC
-│   └── wazuh/
-│       ├── local_decoder.xml     # Wazuh JSON decoder
-│       ├── local_rules.xml       # Wazuh alert rules (110000-110005)
-│       └── ossec-active-response.xml  # Active Response wiring
-│   └── wazuh-active-response.sh  # Pod isolation script for Wazuh agent
+│   ├── scanner-cronjob.yaml         # CronJob + least-privilege ClusterRole
+│   ├── webhook-deployment.yaml      # Webhook Deployment + ValidatingWebhookConfiguration
+│   ├── wazuh/
+│   │   ├── local_decoder.xml        # Wazuh JSON decoder
+│   │   ├── local_rules.xml          # Alert rules 110000–110005 (MITRE ATT&CK mapped)
+│   │   └── ossec-active-response.xml
+│   └── wazuh-active-response.sh     # Pod isolation script for Wazuh agent
 ├── scripts/
-│   └── gen-certs.sh              # Self-signed TLS cert generation
+│   └── gen-certs.sh                 # Self-signed TLS certificate generation
 └── go.mod
 ```
 
-## 🚀 Quick Start
+---
+
+## Quick Start
 
 ### Prerequisites
+
 - Go 1.22+
-- A Kubernetes cluster (local: `kind`, `minikube`, or remote)
-- `kubectl` configured with cluster access
-- (Optional) Ollama running locally for LLM features
-- (Optional) Linux 5.8+ for eBPF runtime monitoring
+- `kubectl` configured against a cluster (`kind`, `minikube`, or remote)
+- (Optional) [Ollama](https://ollama.ai) for LLM auto-remediation
+- (Optional) Linux 5.8+ kernel with BTF for eBPF runtime monitoring
 
-### 1. Install Dependencies
+### Build
 
 ```bash
-cd k8s-security-hardener
 go mod tidy
-```
 
-### 2. Build
-
-```bash
-# Build the scanner CLI
 go build -o bin/scanner ./cmd/scanner
-
-# Build the admission webhook
 go build -o bin/webhook ./cmd/webhook
 ```
 
-### 3. Run the Scanner (Dry-Run)
+### Run Against Your Cluster
 
 ```bash
-# Scan your current kubeconfig cluster, output to console only
+# Console output only — no changes made to the cluster
 ./bin/scanner --cluster-name=my-cluster --dry-run
 ```
 
-### 4. Run with Wazuh Log Shipping
+### Test Without a Cluster (macOS or CI)
+
+```bash
+# Injects realistic synthetic findings — no kubeconfig needed
+./bin/scanner --mock-scan --cluster-name=local
+```
+
+### Ship Findings to Wazuh
 
 ```bash
 ./bin/scanner \
@@ -134,91 +139,112 @@ go build -o bin/webhook ./cmd/webhook
   --syslog-addr=wazuh-manager:514
 ```
 
-### 5. Enable LLM Auto-Remediation
+### LLM Auto-Remediation
 
 ```bash
-# Make sure Ollama is running: ollama serve
-./bin/scanner \
-  --cluster-name=production \
-  --dry-run \
-  --llm-fix \
-  --ollama-model=llama3
+# Default model: dolphin-llama3 (change with --ollama-model)
+ollama serve
+./bin/scanner --cluster-name=production --llm-fix --dry-run
+
+# Test LLM without a cluster
+./bin/scanner --mock-scan --llm-fix --ollama-model=dolphin-llama3
 ```
 
 ---
 
-## 🔍 Scanners
+## 🔍 Security Checks
 
-### RBAC Scanner (`RBAC-001` to `RBAC-004`)
+### RBAC Scanner
+
 | Rule ID | Severity | Description |
 |---|---|---|
-| `RBAC-001` | Critical | ClusterRole with wildcard verbs AND resources |
+| `RBAC-001` | Critical | ClusterRole with wildcard verbs **and** resources |
 | `RBAC-002` | High | Role grants `pods/exec` or `pods/portforward` |
-| `RBAC-003` | Critical | Subject bound to wildcard ClusterRole |
-| `RBAC-004` | High | Namespace Role with wildcard permissions |
+| `RBAC-003` | Critical | Subject bound to a wildcard ClusterRole |
+| `RBAC-004` | High | Namespace-scoped Role with wildcard permissions |
 
-### Workload Scanner (`WORKLOAD-001` to `WORKLOAD-008`)
+### Workload Scanner
+
 | Rule ID | Severity | Description |
 |---|---|---|
 | `WORKLOAD-001` | High | Pod `runAsUser: 0` (root) |
 | `WORKLOAD-002` | Critical | Container `privileged: true` |
 | `WORKLOAD-003` | High | Container `runAsUser: 0` |
 | `WORKLOAD-004` | Medium | Missing `readOnlyRootFilesystem` |
-| `WORKLOAD-005` | Medium | `allowPrivilegeEscalation` not false |
-| `WORKLOAD-006` | Medium | Missing resource limits |
+| `WORKLOAD-005` | Medium | `allowPrivilegeEscalation` not set to `false` |
+| `WORKLOAD-006` | Medium | No resource limits (CPU/memory) |
 | `WORKLOAD-007` | High | `hostNetwork: true` |
 | `WORKLOAD-008` | High | `hostPID: true` |
 
-### Graph Attack Path (`GRAPH-001`)
-Uses **Dijkstra's shortest path** via `gonum/graph` to find exploitable paths from public-facing pods to ClusterAdmin service accounts.
+### Secrets Scanner
 
-### eBPF Runtime (`EBPF-001`)
-Hooks into `sys_enter_execve` to detect anomalous binary execution inside containers (e.g., `bash`, `curl`, `nc` inside an Nginx container).
+| Rule ID | Severity | Description |
+|---|---|---|
+| `SECRET-001` | High | Hardcoded credential in an environment variable |
+| `SECRET-002` | Medium | Secret stored in the `default` namespace |
+| `SECRET-003` | Low | Secret key with a sensitive name — audit access |
 
-> **Note**: eBPF requires Linux kernel 5.8+ with BTF. macOS/Windows automatically use the stub (no-op) mode.
+### Network Scanner
+
+| Rule ID | Severity | Description |
+|---|---|---|
+| `NETWORK-001` | High | Namespace missing a default-deny **Ingress** NetworkPolicy |
+| `NETWORK-002` | Medium | Namespace missing a default-deny **Egress** NetworkPolicy |
+
+### Graph Attack-Path Analysis (`GRAPH-001`)
+
+Builds a directed graph of Pods → ServiceAccounts → Secrets → Roles using `gonum/graph` and runs **Dijkstra's shortest path** to find exploitable routes from public-facing pods to ClusterAdmin-bound service accounts. Findings include the full path in `attack_path`.
+
+### eBPF Runtime Monitor (`EBPF-001`)
+
+Hooks into the `sys_enter_execve` kernel tracepoint and alerts when a container unexpectedly executes suspicious binaries (`bash`, `curl`, `nc`, `socat`, etc.).
+
+> **Linux only** — requires kernel 5.8+ with BTF. On other platforms the stub runs silently. To enable full eBPF: install `clang` + `linux-headers`, write `bpf/execve_monitor.c`, then run `go generate ./internal/ebpf/`.
 
 ---
 
-## 🔗 Wazuh Integration
+## Wazuh Integration
 
-### Setup
+### Install Decoder and Rules
 
-1. Copy decoder to Wazuh Manager:
 ```bash
 sudo cp deployments/wazuh/local_decoder.xml /var/ossec/etc/decoders/
-sudo cp deployments/wazuh/local_rules.xml /var/ossec/etc/rules/
+sudo cp deployments/wazuh/local_rules.xml    /var/ossec/etc/rules/
 sudo systemctl restart wazuh-manager
 ```
 
-2. Install active response script on the agent:
+### Install Active Response Script
+
 ```bash
-sudo cp deployments/wazuh-active-response.sh /var/ossec/active-response/bin/k8s-isolate-pod.sh
-sudo chmod 750 /var/ossec/active-response/bin/k8s-isolate-pod.sh
+sudo cp deployments/wazuh-active-response.sh \
+    /var/ossec/active-response/bin/k8s-isolate-pod.sh
+sudo chmod 750  /var/ossec/active-response/bin/k8s-isolate-pod.sh
 sudo chown root:wazuh /var/ossec/active-response/bin/k8s-isolate-pod.sh
 ```
 
-3. Add active response wiring to `/var/ossec/etc/ossec.conf` (see `deployments/wazuh/ossec-active-response.xml`)
+Add the active-response wiring from `deployments/wazuh/ossec-active-response.xml` to `/var/ossec/etc/ossec.conf`.
 
-### Wazuh Rules
+### Alert Rules
+
 | Rule ID | Level | Trigger |
 |---|---|---|
-| `110000` | 3 | Any k8s-hardener event |
-| `110001` | 7 | Medium severity finding |
+| `110000` | 3  | Any k8s-hardener event |
+| `110001` | 7  | Medium severity finding |
 | `110002` | 10 | High severity finding |
 | `110003` | 12 | Critical severity finding |
-| `110004` | 14 | Critical + Attack Path detected |
-| `110005` | 15 | eBPF runtime threat detected |
+| `110004` | 14 | Critical + confirmed attack path |
+| `110005` | 15 | eBPF runtime threat (reverse shell / suspicious exec) |
 
-Rules 110004 and 110005 trigger **automatic pod isolation** via the Active Response script.
+Rules **110004** and **110005** automatically trigger the Active Response script, which applies a deny-all NetworkPolicy to isolate the affected pod.
 
 ---
 
-## 🛡️ Admission Controller
+## Admission Controller
 
-The webhook blocks non-compliant deployments at the gate.
+Blocks non-compliant workloads before they reach the cluster.
 
 ```bash
-# Generate TLS certificates
+# Generate self-signed TLS certificates
 ./scripts/gen-certs.sh
 
 # Create the TLS secret
@@ -226,39 +252,39 @@ kubectl create namespace security
 kubectl create secret tls k8s-hardener-webhook-tls \
   --cert=certs/tls.crt --key=certs/tls.key -n security
 
-# Get the caBundle and update webhook-deployment.yaml
+# Fill in caBundle in webhook-deployment.yaml
 CA_BUNDLE=$(cat certs/ca.crt | base64 | tr -d '\n')
-# Paste $CA_BUNDLE into the caBundle field in webhook-deployment.yaml
+# Paste $CA_BUNDLE into the caBundle field in deployments/webhook-deployment.yaml
 
 # Deploy
 kubectl apply -f deployments/webhook-deployment.yaml
 
-# Test — this privileged pod should be rejected:
-kubectl run test-priv --image=nginx --overrides='{"spec":{"containers":[{"name":"test-priv","image":"nginx","securityContext":{"privileged":true}}]}}'
+# Verify — this should be rejected:
+kubectl run bad-pod --image=nginx \
+  --overrides='{"spec":{"containers":[{"name":"bad-pod","image":"nginx","securityContext":{"privileged":true}}]}}'
 ```
 
 ---
 
-## 🧠 LLM Remediation
+## LLM Remediation
 
-Integrates with [Ollama](https://ollama.ai) to auto-generate hardened YAML patches:
+Sends the raw YAML of a vulnerable resource to a local [Ollama](https://ollama.ai) model, which produces a hardened patch. The output is validated with `kubectl apply --dry-run=client` (falls back to structural YAML parse when no cluster is available).
 
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull llama3
+# Pull the model (first time only)
+ollama pull dolphin-llama3
 
-# Run with LLM patching enabled
-./bin/scanner --llm-fix --ollama-model=llama3 --dry-run
+# Run — LLM patches are appended to each finding's remediation field
+./bin/scanner --llm-fix --ollama-model=dolphin-llama3 --cluster-name=production
 ```
 
-The LLM output is validated with `kubectl apply --dry-run=client` before being suggested.
+Supported via `--ollama-model`: `dolphin-llama3`, `llama3`, `codellama`, or any model served by Ollama.
 
 ---
 
-## 📊 Finding JSON Schema
+## Finding JSON Schema
 
-Every finding is emitted as a JSON object:
+All findings are emitted as newline-delimited JSON, compatible with Wazuh's `JSON_Decoder`:
 
 ```json
 {
@@ -274,17 +300,34 @@ Every finding is emitted as a JSON object:
   "attack_path": "Pod/default/web → ServiceAccount/default/admin → ClusterRole/cluster-admin"
 }
 ```
----
-
-## 🔐 Security Notes
-
-- The scanner runs with **read-only** RBAC permissions — it never modifies cluster state
-- The webhook uses **fail-open** (`failurePolicy: Ignore`) by default — the cluster stays operational if the webhook is unreachable
-- The eBPF monitor requires privileged access on Linux — it is only deployed in the CronJob on Linux nodes
-- All containers in the manifests enforce `runAsNonRoot`, `readOnlyRootFilesystem`, and drop all capabilities
 
 ---
 
-## 📜 License
+## Security Notes
+
+- **Read-only scanner** — the scanner ClusterRole only has `get` and `list` verbs; it never mutates cluster state
+- **Fail-open webhook** — `failurePolicy: Ignore` keeps the cluster operational if the webhook is temporarily unavailable; change to `Fail` once the webhook has proven stability
+- **Secure log file** — findings log is written with mode `0640` (owner + wazuh group only)
+- **Hardened containers** — all provided manifests enforce `runAsNonRoot`, `readOnlyRootFilesystem`, and `capabilities.drop: ALL`
+- **No hardcoded secrets** — all sensitive values are passed via flags or environment variables; `certs/` and `bin/` are gitignored
+
+---
+
+## Linux Compatibility
+
+Everything works on Linux without code changes:
+
+| Feature | Linux |
+|---|---|
+| All static scanners | ✅ Full |
+| Graph attack-path analysis | ✅ Full |
+| LLM remediation | ✅ Full (needs `ollama serve`) |
+| Admission webhook | ✅ Full (needs TLS certs) |
+| Wazuh integration | ✅ Full (needs `jq` + Wazuh agent) |
+| eBPF runtime monitor | ✅ Compiles; needs `go generate` + `clang` for live bytecode |
+
+---
+
+## License
 
 MIT — see [LICENSE](LICENSE)
